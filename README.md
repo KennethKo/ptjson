@@ -24,9 +24,9 @@ TODO
 
 
 
--What does existing parser do? Is js member iterator deterministic in order iteration?
+*-What does existing parser do? Is js member iterator deterministic in order iteration?
 
---No. Property order is never guaranteed.
+*--No. Property order is never guaranteed.
 
 -Extend existing JSON library stringify and parse with special behavior around 4 reserved properties. 
 
@@ -42,6 +42,10 @@ TODO
 
 --Actually somewhat handled by JSON.decycle. Didn't know it existed. Hm. Still, it only implements dereferencing for exact reference 
 matches (using weakmap), and not value matches.
+
+--JSON stringifier already skips serializing inherited properties, but also skips __proto__, as does the decycler.
+
+-- If we do collect __proto__s in a reserved $array at the top, we'd need to do two passes through the objects to remove redundant references to the same objects between __proto__ references and direct references (unless we adapted decycle directly). Perhaps this should all be $refjson, rather than ptjson.
 
 -Work out logic for prototype-ifying JS objects with approximate redundancies paired with overrides. Do a bit of huffman research, but 
 more likely some kind of center-finding refresher? Could be more naive than that.
