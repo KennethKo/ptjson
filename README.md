@@ -14,8 +14,6 @@ ptLib - a collection of prototype JSON objects that aren't otherwise referenced 
 
 TODO
 
--Set up docker local.
-
 -Set up nodejs local
 
 -Set up atom.
@@ -46,6 +44,8 @@ matches (using weakmap), and not value matches.
 --JSON stringifier already skips serializing inherited properties, but also skips __proto__, as does the decycler.
 
 -- If we do collect __proto__s in a reserved $array at the top, we'd need to do two passes through the objects to remove redundant references to the same objects between __proto__ references and direct references (unless we adapted decycle directly). Perhaps this should all be $refjson, rather than ptjson.
+
+-- Chained prototype refs? climbing the chain to the common ref? hm.
 
 -Work out logic for prototype-ifying JS objects with approximate redundancies paired with overrides. Do a bit of huffman research, but 
 more likely some kind of center-finding refresher? Could be more naive than that.
