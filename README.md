@@ -14,8 +14,6 @@ ptLib - a collection of prototype JSON objects that aren't otherwise referenced 
 
 TODO
 
--Set up nodejs local
-
 -Set up atom.
 
 -Set up desktop remote server?
