@@ -7,6 +7,8 @@
     See http://javascript.crockford.com/jsmin.html
     USE YOUR OWN COPY. IT IS EXTREMELY UNWISE TO LOAD CODE FROM SERVERS YOU DO
     NOT CONTROL.
+    'Inspired' by cycle.js - Javascript is by no means my first language.
+    https://github.com/KennethKo/ptjson
 */
 
 
@@ -22,7 +24,7 @@ if (typeof PTJSON.protopack !== "function") {
 // equal to the object's __proto__ if it is set to an object besides Object.prototype,
 // while also setting the property on any object properties ($protoref included).
 
-// This should allow for JSON serialization of prototype hierarchies. 
+// This should allow for JSON serialization of prototype hierarchies.
 // Be sure to invoke JSON.decycle to avoid serializing redundant prototypes over and over.
 
 // TODO - usage example.
@@ -92,10 +94,3 @@ if (typeof PTJSON.protounpack !== "function") {
 // Iterate over an object or array, searching for common sets of property values that could be collected into a common prototypes.
 // Shift these values into the prototype and restructure the properties within the given object to reduce redundant property declarations.
 // Save this collection of new prototypes into an object. If it's populated, this returns a 2 element array, with the new prototype collection in the first and a deep, mutated copy of the given object in the second. This should allow JSON.decycle to condense the references in the object, and not in the library.
-
-
-
-
-
-
-
