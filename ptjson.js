@@ -9,10 +9,6 @@
     NOT CONTROL.
 */
 
-/*jslint eval */
-
-/*property
-*/
 
 if (typeof PTJSON !== "object") {
     PTJSON = {};
