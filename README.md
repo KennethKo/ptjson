@@ -1,49 +1,26 @@
 # ptjson
 
-A friend of mine has a large pile of json driving some kind of Angular UI, but it's got a lot of redundancy in it. Common properties, like button properties, get duplicated throughout the code and make the JSON unreadable.
+A friend of mine has a large pile of json driving some kind of Angular UI, but it's got a lot of redundancy in it. Common properties, like button properties, get duplicated throughout the code and make his JSON unreadably long.
 
-I don't see a reason why we couldn't tweak JSON stringify and parse to serialize __proto__ properties by reserving a few property names:
-
-ptRef - reference name other JSON objects would use to refer to this object. ptRef should be the only property actually parsed into the JS object on parse.
-
-ptDel - delegate prototype object, pointing to a protoRef of a sibling or uncle-ancestor (siblings of ancestor line), inheriting everything from the prototype except Proto<Properties>. Lowest priority, overridable within the object. 
-
-ptExt - composition prototype object, absorbing all visible objects of the list of protoRefs. Last in wins.
-
-ptLib - a collection of prototype JSON objects that aren't otherwise referenced elsewhere in the current object's tree.
-
+JSON already has a decycle utitlity that actually dereferences all object references into reserved "{$ref:<JSONPath>}" objects. A utility that packs and unpacks __proto__ into a materialized $protoref property would make the proto object itself also JSON serializable.
+  
 TODO
 
--Set up atom.
+-Set up atom? Is vi enough for me?
 
 -Set up desktop remote server?
 
 
-
-*-What does existing parser do? Is js member iterator deterministic in order iteration?
-
-*--No. Property order is never guaranteed.
-
--Extend existing JSON library stringify and parse with special behavior around 4 reserved properties. 
-
 --https://github.com/douglascrockford/JSON-js/blob/master/json2.js
 
+--https://github.com/douglascrockford/JSON-js/blob/master/cycle.js
 
+--protopack, deprotopack
 
--Work out default ptRef naming conventions for __proto__ objects that don't have a ptRef property defined.
-
+--prototypify, deprototypify
 
 
 -Work out logic for prototype-ifying JS objects exact redundencies.
-
---Actually somewhat handled by JSON.decycle. Didn't know it existed. Hm. Still, it only implements dereferencing for exact reference 
-matches (using weakmap), and not value matches.
-
---JSON stringifier already skips serializing inherited properties, but also skips __proto__, as does the decycler.
-
--- If we do collect __proto__s in a reserved $array at the top, we'd need to do two passes through the objects to remove redundant references to the same objects between __proto__ references and direct references (unless we adapted decycle directly). Perhaps this should all be $refjson, rather than ptjson.
-
--- Chained prototype refs? climbing the chain to the common ref? hm.
 
 -Work out logic for prototype-ifying JS objects with approximate redundancies paired with overrides. Do a bit of huffman research, but 
 more likely some kind of center-finding refresher? Could be more naive than that.
