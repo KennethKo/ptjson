@@ -1,0 +1,63 @@
+<html><body>
+  <script src="cycle.js"></script>
+  <script src="ptjson.js"></script>
+<pre><p id=output></p>
+<script>
+function out(s) {
+    document.getElementById('output').innerHTML += s + '<br>';
+}
+function doTest(o) {
+    var s, rawJson, minJson, unminO, unminJson;
+    try {
+        rawJson = JSON.stringify(o);
+
+        minJson = JSON.stringify(
+                  JSON.decycle(
+                  PTJSON.protopack(
+                  //PTJSON.prototypify( TODO
+                    o
+                  )));
+        unminO = //PTJSON.deprototypify( TODO
+                 PTJSON.protounpack(
+                 JSON.retrocycle(
+                 JSON.parse(
+                   minJson
+                 )));
+
+        unminJson = JSON.stringify(unminO);
+
+        out('<br><br> demutate match: ' + (rawJson == unminJson));
+        out(o);
+        out(rawJson);
+        out(minJson);
+        out(unminO);
+        out(unminJson);
+    } catch (e) {
+        debugger;
+        out("    name: " + e.name);
+        out(" message: " + e.message);
+    }
+}
+doTest((new function() {
+    // test data
+    o1 = {
+      make : "ford",
+      model : "explorer",
+      year : "1999",
+      VIN : "foo001",
+      tires : [], // todo differentiate front and rear tires, contain certain screws
+      doors : [], // todo differentiate left and right doors, contain certain switches
+      console : {
+        // todo contain same switches and screws
+      }
+    };
+    // note - there are no redundant objects here - just creating deep copies w/ decycle
+    //o2 = JSON.decycle(o1);
+    o2 = Object.create(o1);  // TODO replace w/ above line when prototypify is live
+    o2.VIN = "foo002";
+    //o3 = JSON.decycle(o1);
+    o3 = Object.create(o1);  // TODO replace w/ above line when prototypify is live
+    o3.VIN = "foo003";
+    return [o1, o2, o3];
+}()));
+</script></pre></body></html>
