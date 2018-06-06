@@ -9,6 +9,33 @@
     NOT CONTROL.
     'Inspired' by cycle.js - Javascript is by no means my first language.
     https://github.com/KennethKo/ptjson
+
+    Example usage:
+
+      rawJson = JSON.stringify(
+                JSON.decycle(
+                  o
+                ));
+
+      minJson = JSON.stringify(     // 5. Convert to JSON
+                JSON.decycle(       // 4. Replace shallow copy references with JSONPath references
+                PTJSON.protopack(   // 3. Move __proto__ references into a JSON serializable $protoref property
+                PTJSON.prototypify( // 2. Find common object properties and shift them into shared (shallow copy) __proto__ objects
+                PTJSON.shallowify(  // 1. Replace deep copies with shallow ones
+                  o
+                ))));
+      unminO = PTJSON.unshallowify(
+               PTJSON.deprototypify(
+               PTJSON.protounpack(
+               JSON.retrocycle(
+               JSON.parse(
+                 minJson
+               ))));
+
+      unminJson = JSON.stringify(
+                  JSON.decycle(
+                    unminO
+                  ));
 */
 
 
@@ -34,55 +61,39 @@ if (typeof PTJSON._iterate !== "function") {
     // Recursively iterate over an object or array, invoking delegate del once
     // on each object for every proper object referenced (i.e. not String, etc).
     // If del returns an object or array, we will also iterate on that.
-    // If deepDel is given, updates each reference w/ the return value of deepDel.
+    //
+    // Any manipulation the delegate del does to the an object will be in place.
 
-    PTJSON._iterate = function _iterate(object, del, deepDel) {
+    PTJSON._iterate = function _iterate(object, del) {
         "use strict";
 
         if (!object || typeof del !== "function") {
             return object;
         }
-        var objects = new WeakMap();
-        var hasDeepDel = (typeof deepDel === "function");
-        return (function _iter(object) {  // TODO does this anon _iter function get created for every invocation of _iterate?
+        var objects = new WeakSet();
+        return (function _iter(object, oKey) {
             // only munge nestable json objects
             if (!PTJSON._isJsonObj(object)) {
                 return object;
             }
 
-            var nu = hasDeepDel ? deepDel(object) : object;
             if (Array.isArray(object)) {
-                if (hasDeepDel) {
-                    object.forEach(function (element, i) {
-                        nu[i] = _iter(element);
-                    });
-                } else {
-                    object.forEach(function (element, i) {
-                        _iter(element);
-                    });
-                }
+                object.forEach(function (element, i) {
+                    _iter(element);
+                });
             } else {
-                if (objects.get(object) !== undefined) {
-                   return nu;
+                if (objects.has(object)) {
+                   return object;
                 }
-                objects.set(object, true);
+                objects.add(object);
 
-                var dObj = del(object);
-                if (PTJSON._isJsonObj(dObj)) {
-                    _iter(dObj); // can't deep copy back into the reference w/ this design, sadly
-                }
-
-                if (hasDeepDel) {
-                    Object.keys(object).forEach(function (key) {
-                        nu[name] = _iter(object[key]);
-                    });
-                } else {
-                    Object.keys(object).forEach(function (key) {
-                        _iter(object[key]);
-                    });
-                }
+                var dObj = del(object, oKey);
+                _iter(dObj);
+                Object.keys(object).forEach(function (key) {
+                    _iter(object[key], key);
+                });
             }
-            return nu;
+            return object;
         })(object);
 
     }
@@ -92,16 +103,21 @@ if (typeof PTJSON.protopack !== "function") {
         "use strict";
 
 // Iterate over an object or array, in-place setting a reserved property $protoref
-// equal to the object's __proto__ if it is set to an object besides Object.prototype,
+// equal to the object's __proto__ if it is set to a non-null object besides Object.prototype,
 // while also recurring into the object's properties ($protoref included).
 
 // This should allow for JSON serialization of prototype hierarchies.
 // Be sure to invoke JSON.decycle to avoid serializing redundant prototypes over and over.
 
-// TODO - usage example.
-        return PTJSON._iterate(object, (function _protopackDel(value) {
+// TODO this should also be responsible for pushing __proto__ references to a head library. This should allow JSON.decycle to JSONPath replace the references in the objects, and not the library.
+// TODO we want to push.... all object protorefs, but while skipping nested-only protorefs. Maybe by parent key.
+// TODO unpack would also be responsible for dropping the library and array structure
+        return PTJSON._iterate(object, (function _protopackDel(value, valueKey) {
             if (value.__proto__ !== null && value.__proto__ !== Object.prototype) {
                 value.$protoref = value.__proto__;
+                value.__proto__ = Object.prototype;
+
+                // TODO if (valueKey != "$protoref") // skip giving grandchildren their own library references. They can sit nested within the library.
             }
         }));
     }
@@ -125,18 +141,105 @@ if (typeof PTJSON.protounpack !== "function") {
     }
 }
 
-// TODO the hard part - prototypify and deprototypify
+
+if (typeof PTJSON.shallowify !== "function") {
+    PTJSON.shallowify = function shallowify(object) {
+        "use strict";
+// Iterate over an object or array, searching for exact deep copies and replacing them with shallow ones.
+// Iterates over children first, so deep copies containing deep copies should properly collapse into shallow references.
+// (NOTE - discarded deep copies may still get munged)
+        var objectRefs = new WeakMap();
+        var refInc = 0;
+        var objectsByFlat = new WeakMap();
+        return (function _iterUnshallowify(object) {
+            // only munge nestable json objects
+            if (!PTJSON._isJsonObj(object)) {
+                return object;
+            }
+
+            // store every object ref and assign it a unique number for later, flat-serialization (faking keying by composite of raw pointer values)
+            if (!objectRefs.has(object)) {
+                objectRefs.set(object, refInc++);
+                // shallow all the children first
+                if (Array.isArray(object)) {
+                    object.forEach(function (element, i) {
+                        object[i] = _iterUnshallowify(element);
+                    });
+                } else {
+                    Object.keys(object).forEach(function (key) {
+                        object[key] = _iterUnshallowify(object[key]);
+                    });
+                }
+            }
+
+            // build a flatString representation of this object as a key
+            //  Nestable references are replaced with "_<num>", which eliminates redundant JSON and limits the total key size to linear wrt original obj
+            // NOTE this flatString is not actually valid JSON
+            // NOTE this shallows all references, not just the ones after the firct like JSON.decycle
+            var flatString = JSON.stringify(object, function _flatReplacer(rValue) {
+                return (objectRefs.has(rValue)) ? "_"+objectRefs.get(rValue) : rValue;
+            });
+
+            if (objectsByFlat.has(flatString)) {
+                return objectsByFlat.get(flatString);
+            }
+            objectsByFlat.has(flatString)
+            return object;
+        })(object);
+    }
+}
 
 
+if (typeof PTJSON.unshallowify !== "function") {
+    PTJSON.unshallowify = function unshallowify(object) {
+        "use strict";
+// Iterate over an object or array, searching for shallow copies and replacing them with deep ones.
+        var objects = new WeakSet();
+        var stackObjects = new WeakSet();
+        return (function _iterUnshallowify(object) {
+            // only munge nestable json objects
+            if (!PTJSON._isJsonObj(object)) {
+                return object;
+            }
+            if (stackObjects.has(object)) {
+                return object;
+            }
+
+            stackObjects.add(object);
+            var nu;
+            if (Array.isArray(object)) {
+                nu = objects.has(object) ? [] : object;
+                object.forEach(function (element, i) {
+                    nu[i] = _iterUnshallowify(element);
+                });
+            } else {
+                nu = objects.has(object) ? {} : object;
+                Object.keys(object).forEach(function (key) {
+                    nu[key] = _iterUnshallowify(object[key]);
+                });
+            }
+            objects.add(nu);
+            stackObjects.delete(object);
+            return object;
+        })(object);
+
+    }
+}
+
+if (typeof PTJSON.prototypify !== "function") {
+    PTJSON.deprototypify = function prototypify(object) {
+        "use strict";
 // Iterate over an object or array, searching for common sets of property values that could be collected into a common prototypes.
-// Shift these values into the prototype and restructure the properties within the given object to reduce redundant property declarations.
-// Save this collection of new prototypes into an object. If it's populated, this returns a 2 element array, with the new prototype collection in the first and a deep, mutated copy of the given object in the second. This should allow JSON.decycle to condense the references in the object, and not in the library.
+// In a second pass, shift these values into a new common prototype and restructure the properties within the given object to reduce redundant property declarations.
+
+        return null;  //TODO
+    }
+}
 
 
 if (typeof PTJSON.deprototypify !== "function") {
     PTJSON.deprototypify = function deprototypify(object) {
         "use strict";
-
 // Iterate over an object or array, setting all inherited properties to own properties
 // before setting the __proto__ to plain Object.prototype
 
