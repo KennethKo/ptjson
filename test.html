@@ -9,22 +9,31 @@ function out(s) {
 function doTest(o) {
     var s, rawJson, minJson, unminO, unminJson;
     try {
-        rawJson = JSON.stringify(o);
+        rawJson = JSON.stringify(
+                  JSON.decycle(
+                    o
+                  ));
 
         minJson = JSON.stringify(
                   JSON.decycle(
                   PTJSON.protopack(
                   //PTJSON.prototypify( TODO
+                  PTJSON.shallowify(
                     o
-                  )));
-        unminO = //PTJSON.deprototypify( TODO
+                  ))));
+        unminO = PTJSON.unshallowify(
+                 //PTJSON.deprototypify( TODO
                  PTJSON.protounpack(
                  JSON.retrocycle(
                  JSON.parse(
                    minJson
-                 )));
+                 ))));
 
-        unminJson = JSON.stringify(unminO);
+        unminJson = JSON.stringify(
+                    JSON.decycle(
+                      unminO
+                    ));
+
 
         out('<br><br> demutate match: ' + (rawJson == unminJson));
         out(o);
@@ -45,19 +54,24 @@ doTest((new function() {
       model : "explorer",
       year : "1999",
       VIN : "foo001",
-      tires : [], // todo differentiate front and rear tires, contain certain screws
-      doors : [], // todo differentiate left and right doors, contain certain switches
+      tires : [], // TODO differentiate front and rear tires, contain certain screws
+      doors : [], // TODO differentiate left and right doors, contain certain switches
       console : {
         // todo contain same switches and screws
       }
     };
+    o1.backref = o1;
     // note - there are no redundant objects here - just creating deep copies w/ decycle
     //o2 = JSON.decycle(o1);
-    o2 = Object.create(o1);  // TODO replace w/ above line when prototypify is live
+    o2 = Object.create(o1);  // TODO replace w/ above line creating deep copies when prototypify is live
     o2.VIN = "foo002";
+    o2.backref = o2;
+    // TODO customize tires - some deep copies, some shallow
     //o3 = JSON.decycle(o1);
     o3 = Object.create(o1);  // TODO replace w/ above line when prototypify is live
     o3.VIN = "foo003";
+    o3.backref = o3;
+    // TODO customize tires - some deep copies, some shallow
     return [o1, o2, o3];
 }()));
 </script></pre></body></html>
