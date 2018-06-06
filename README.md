@@ -6,25 +6,22 @@ JSON already has a decycle utitlity that actually dereferences all object refere
   
 TODO
 
--Set up atom? Is vi enough for me?
-
--Set up desktop remote server?
-
-
 --https://github.com/douglascrockford/JSON-js/blob/master/json2.js
 
 --https://github.com/douglascrockford/JSON-js/blob/master/cycle.js
 
---protopack, deprotopack
+--protopack, deprotopack - Mostly DONE
 
 --prototypify, deprototypify
 
+---Work out logic for prototype-ifying JS objects with approximate redundancies paired with overrides. Collect key-value pairs on shallow reference comparisons, collecting into "set" objects.
 
--Work out logic for prototype-ifying JS objects exact redundencies.
+---Sets with lots of overlap are easy to collapse, but sets with marginal overlap tend to get n^2. Could optimize a bit w/ a master-map, checking for prelim overlap before checking each distinct set.
 
--Work out logic for prototype-ifying JS objects with approximate redundancies paired with overrides. Do a bit of huffman research, but 
-more likely some kind of center-finding refresher? Could be more naive than that.
+---What to do when the AB intersect, BC intersect, and AC intersect all exceed the threshold necessary for prototypification, but the ABC intersect does not? Is this... a negative keys question? Not quite, since the misses could be wrong values within keys as well. Hm.
 
+--shallowify, unshallowify - DONE
 
+---Work out logic for prototype-ifying JS objects exact redundencies - DONE.
 
 
