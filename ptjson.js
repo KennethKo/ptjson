@@ -112,7 +112,7 @@ if (typeof PTJSON.protopack !== "function") {
 // TODO this should also be responsible for pushing __proto__ references to a head library. This should allow JSON.decycle to JSONPath replace the references in the objects, and not the library.
 // TODO we want to push.... all object protorefs, but while skipping nested-only protorefs. Maybe by parent key.
 // TODO unpack would also be responsible for dropping the library and array structure
-        return PTJSON._iterate(object, (function _protopackDel(value, valueKey) {
+        return PTJSON._iterate(object, (function (value, valueKey) {
             if (value.__proto__ !== null && value.__proto__ !== Object.prototype) {
                 value.$protoref = value.__proto__;
                 value.__proto__ = Object.prototype;
@@ -130,7 +130,7 @@ if (typeof PTJSON.protounpack !== "function") {
 // Iterate over an object or array, mutating it in-place by setting each object's __proto__ equal to
 // the object saved in the reserved property $protoref, and deleting the $protoref property.
 
-        return PTJSON._iterate(object, (function _protounpackDel(value) {
+        return PTJSON._iterate(object, (function (value) {
             if (value.hasOwnProperty("$protoref")
                     && typeof value.$protoref === "object") {
                 value.__proto__ = value.$protoref;
@@ -227,10 +227,63 @@ if (typeof PTJSON.unshallowify !== "function") {
 }
 
 if (typeof PTJSON.prototypify !== "function") {
-    PTJSON.deprototypify = function prototypify(object) {
+    PTJSON.deprototypify = function prototypify(object, options) {
         "use strict";
-// Iterate over an object or array, searching for common sets of property values that could be collected into a common prototypes.
+// Iterate over an object or array, searching for common sets of property values that could be clustered into a common prototypes.
 // In a second pass, shift these values into a new common prototype and restructure the properties within the given object to reduce redundant property declarations.
+      if (!options) options = {};
+      if (!options.minProtoSize) options.minProtoSize = 3;          // Prototypes should have at least 3 common attribute key-value pairs to be formed
+      if (!options.minProtoUsage) options.minProtoUsage = 3;        // Prototypes should be referenced by at least 3 objects to be formed
+      if (!options.maxOverrideRatio) options.maxOverrideRatio = .4; // A "common" attribute may be overridden at most 40% of the time by its inheritors to be included in their prototype TODO
+
+
+// First step, first pass: collect into common attributes
+        // collect serializable references
+        var objectRefs = new WeakMap();
+        var refInc = 0;
+        PTJSON._iterate(object, (function (value) {
+            if (!objectRefs.has(value)) {
+                objectRefs.set(value, refInc++);
+            }
+            if (value.__proto__ !== null && value.__proto__ !== Object.prototype) {
+                return value.__proto__;
+            }
+        }));
+        // build attribute map on key and key-value attribute references
+        var attrsByObj = new WeakMap()
+        var objsByAttr = new WeakMap();
+        PTJSON._iterate(object, (function (value) {
+            if (value.__proto__ !== null && value.__proto__ !== Object.prototype) {
+                // TODO impl support for pre-existing __proto__. Treat like a super attribute (which MUST match in sets)
+                return;
+            }
+            var attrs = Object.keys().map(key => key + " : " + objectRefs.has(value) ? objectRefs[value] : value);
+            attrsByObj.set(value, new WeakSet(attrs));
+            attrs.forEach( function (attr) {
+                if (!objsByAttr.has(attr)) {
+                    objsByAttr.set(keyVal, new WeakSet());
+                }
+                objsByAttr[attr].add(value);
+            })
+        }));
+
+// Second step, cluster common key-value attributes greedily. Memoize visited objects (do we memoize attrs or objs)?
+        // calculate intersection of each attribute's objectSet
+        Object.keys(objsByAttr).forEach(function(attr) {
+            if (objsByAttr.get(attr).length < options.minProtoUsage) {
+                continue;
+            }
+
+            // TODO iter into each obj for candidate neighbors? What does merge candidate look like?
+            // TODO what does the candidate score look like? Neighbords have a certain number of common objects, but (A^B) ^ C may be different from (A^C) v (A^C).
+            // TODO  Traditional clustering doesn't quite make sense here, because each attr added to a cluster potentially *shrinks* its footprint, rather than increasing it.
+            // TODO  That's the key to engineer around. I'd rather not n*k^2 to do it here though.
+
+            // TODO ah fuck. This is so fucking hard. Let's simplify, and break out the hard parts later
+
+        });
+
+        // TODO impl support for override threshold recognition
 
         return null;  //TODO
     }
@@ -243,7 +296,7 @@ if (typeof PTJSON.deprototypify !== "function") {
 // Iterate over an object or array, setting all inherited properties to own properties
 // before setting the __proto__ to plain Object.prototype
 
-        return PTJSON._iterate(object, (function _deprototypifyDel(value) {
+        return PTJSON._iterate(object, (function (value) {
             var proto = value.__proto__;
             var hasProto = false;
             while (proto !== null && proto !== Object.prototype && PTJSON._isJsonObj(proto)) {
