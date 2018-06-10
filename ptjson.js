@@ -246,7 +246,7 @@ if (typeof PTJSON.prototypify !== "function") {
       if (!options.maxOverrideRatio) options.maxOverrideRatio = .4; // A "common" attribute may be overridden at most 40% of the time by its inheritors to be included in their prototype TODO
 
 
-// First step, first pass: collect into common attributes
+// First step, first pass: collect into common attributes and heuristics
         // collect serializable references
         var objectRefs = new WeakMap();
         var refInc = 0;
@@ -299,26 +299,24 @@ if (typeof PTJSON.prototypify !== "function") {
             }
             attrScores.set(attr, score);
         }
+        var attrListByScore = Array.from(attrScores.keys()).sort(function(key) {return attrScores.get(key);});
 
-
-// Second step, cluster common key-value attributes greedily. Memoize visited objects (do we memoize attrs or objs)?
-        var mergedAttrs = new WeakSet();    // all objects that have already been merged into a prototype candidate TODO perhaps this should be merged attrs?
-        // calculate intersection of each attribute's objectSet
-        objsByAttr.forEach(function(candidateObjects, attr, objsByAttr) {
-            if (mergedAttrs.has(attr)) {
-                return;
-            }
-            mergedAttrs.add(attr);
-            if (candidateObjects.size < options.minProtoUsage) {
-                continue;
-            }
-
+// Second step, cluster common key-value attributes greedily. This may deep dive, so memoize merged attrs
+        var protosByObj = new Map();    // TODO should this be a multimap? or do objects always get assigned to just one proto?
+        for (var attr : attrListByScore) {
             // 2.1 Find an initial <minProtoUsage> candidate set to merge together from the given objects that have the most overlap
             var protoCandidate = {
                 candidateObjects: [],
                 attrSet: new Set(),
                 parentProto: Object.prototype
+                protoChildren: []
             }
+
+            // Attr proto eval against existing prototype candidates
+            // 1) objects that match -> add attr to attrSet
+            // 2) attrObj - protoObj ->  sub proto candidate. Create and assign to protosByObj
+            // 3) protoObj - attrObj -> super proto candidate. Create and reassign super proto map to new proto. Delete (protoObj - attrObj) from current protoCandidate
+
             // among the common objects, look for another attr with as many common objects as possible
             candidateObjects.forEach(function(candidateObject) {
                 if (mergedObjects.has(candidateObject)) {   // O(k*n)
@@ -340,6 +338,10 @@ if (typeof PTJSON.prototypify !== "function") {
                 // TODO each attr already has a friggin count. What exactly does this localized count do for my grouping? Attr -> objs -> attrs
                 // TODO what do I do when I manually create a proto? I look at a common attr, and I look for other common attrs among them. Ones that are common get added to the set, ones that aren't arent.
                 // TODO find the most common attr, then the second most common. Go naive greedy and validate after.
+
+                // TODO okay, one sec. What am I doing. I am - evaluating every attr against every other attr, searching for commonality, right? Is there a way to do this greedily?
+                // TODO perhaps always merge?
+
             });
 
             // 2.2 Add the other objects to the candidate.
@@ -355,7 +357,11 @@ if (typeof PTJSON.prototypify !== "function") {
 
         });
 
+// Third step, collapse proto candidates to conform to options
+        // If a proto doesn't have enough attributes, push them down to all the proto children. Objects that reference only the grandparent are out of luck.
         // TODO impl support for override threshold recognition
+
+// Fourth step - for each object in each proto candidate, set its proto and delete its redundant attrs.
 
         return null;  //TODO
     }
