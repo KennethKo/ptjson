@@ -243,8 +243,8 @@ if (typeof PTJSON.prototypify !== "function") {
       if (!options) options = {};
       if (!options.minProtoSize) options.minProtoSize = 3;          // Prototypes should have at least 3 common attribute key-value pairs to be formed
       if (!options.minProtoUsage) options.minProtoUsage = 3;        // Prototypes should be referenced by at least 3 objects to be formed
-      if (!options.maxOverrideRatio) options.maxOverrideRatio = .4; // A "common" attribute may be overridden at most 40% of the time by its inheritors to be included in their prototype TODO
-
+      if (!options.maxMergeScore) options.maxMergeScore = .5;       // At least half of the objects referencing attr1 must also reference attr2 for us to put these key-value attribute pairs in the same prototype hierarchy (mergeScore is a little more complicated than that, but this is the gist)
+      if (!options.maxOverrideRatio) options.maxOverrideRatio = .4; // TODO A "common" attribute may be overridden at most 40% of the time by its inheritors to be included in their prototype TODO
 
 // First step, first pass: collect into common attributes and heuristics
         // collect serializable references
@@ -263,7 +263,8 @@ if (typeof PTJSON.prototypify !== "function") {
         var objsByAttr = new Map(); // TODO weakmap? Review all the new maps to see which ones don't need iterators or size tracking
         PTJSON._iterate(object, (function (value) {
             if (value.__proto__ !== null && value.__proto__ !== Object.prototype) {
-                // TODO impl support for pre-existing __proto__. Treat like a super attribute (which MUST match in sets)
+                // TODO impl support for pre-existing __proto__. Treat like a super attribute (which MUST match in sets).
+                // TODO Lower priority overall, since objs coming in from json don't start w/ protos
                 return;
             }
             var attrs = Object.keys(value).map(key => key + " : " + objectRefs.has(value) ? objectRefs[value] : value);
@@ -277,7 +278,7 @@ if (typeof PTJSON.prototypify !== "function") {
         }));
         // build a set of heuristic object scores to evaluate overall object connectedness
         var objScores = new Map();
-        attrsByObj.forEach(function (attrs, obj)) {
+        attrsByObj.forEach(function (attrs, obj) {
             var score = 0;
             attrs.forEach(function(attr) {
                 var attrUsage = objsByAttr.get(attr).size;
@@ -286,84 +287,145 @@ if (typeof PTJSON.prototypify !== "function") {
                 }
             });
             objScores.set(obj, score);
-        }
+        });
         // build a set of heuristic attr scores to evaluate overal attr connectedness (for candidate attrs)
         var attrScores = new Map();
-        objsByAttr.forEach(function (objs, attr)) {
+        objsByAttr.forEach(function (objs, attr) {
             if (objs.size < options.minProtoUsage) {
                 continue;
             }
             var score = 0;
             objs.forEach(function(obj) {
                 score += objScores.get(obj);
-            }
+            });
             attrScores.set(attr, score);
-        }
+        });
         var attrListByScore = Array.from(attrScores.keys()).sort(function(key) {return attrScores.get(key);});
 
-// Second step, cluster common key-value attributes greedily. This may deep dive, so memoize merged attrs
-        var protosByObj = new Map();    // TODO should this be a multimap? or do objects always get assigned to just one proto?
-        for (var attr : attrListByScore) {
-            // 2.1 Find an initial <minProtoUsage> candidate set to merge together from the given objects that have the most overlap
-            var protoCandidate = {
-                candidateObjects: [],
-                attrSet: new Set(),
-                parentProto: Object.prototype
-                protoChildren: []
-            }
+// Second step, cluster common key-value attributes greedily into prototypeCandidates, starting w/ highest score
+        var protoCandidates = [];
+        var protoCandidatesByObj = new Map();
+        for (var attr in attrListByScore) {
+            var attrObjs = objsByAttr.get(attr);
 
-            // Attr proto eval against existing prototype candidates
-            // 1) objects that match -> add attr to attrSet
-            // 2) attrObj - protoObj ->  sub proto candidate. Create and assign to protosByObj
-            // 3) protoObj - attrObj -> super proto candidate. Create and reassign super proto map to new proto. Delete (protoObj - attrObj) from current protoCandidate
-
-            // among the common objects, look for another attr with as many common objects as possible
-            candidateObjects.forEach(function(candidateObject) {
-                if (mergedObjects.has(candidateObject)) {   // O(k*n)
-                    return;
+            // Scan the protos we've constructed thus far for target merge candidates.
+            // We want the one with the lowest |AvB| - |A^B| (union vs intersection - most overlap relative to both sets)
+            var protoTargets = new Set();
+            attrObjs.forEach(function (obj) {
+                if (protoCandidatesByObj.has(obj)) { protoTargets.add(protoCandidatesByObj.get(obj)); }
+            });
+            var mergeCandidate = null;
+            var minMergeScore = 100;
+            protoTargets.forEach(function (protoTarget) {
+                var interCount = PTJSON._interCount(attrObjs, protoTarget.objs);
+                var mergeScore = (attrObjs.size - interCount)               // superProtoObjs.size - I apply to more objects than this protoTarget
+                    + (protoTarget.objs.size - interCount)*3;  // subProtoObjs.size - I apply to fewer objects than this protoTarget
+                    // TODO add score considerations for override threshold ratio. Consider adding the objs with the key but not the val.
+                if (mergeScore < minMergeScore) {
+                    minMergeScore = mergeScore;
+                    mergeCandidate = protoTarget;
                 }
-                var candidateAttrs = attrsByObj.get(candidateObject);
-                PTJSON._interCount(attrSet, candidateAttrs);    // which attrSet do we start with?
-                // TODO does this even make sense? we should be validating on object sets, no?
-                // TODO this feels like it's getting the attrs of the union of objects, not the intersection. I guess the intersection comes later?
-
-                // TODO - in the abstract - pick two attributes with significant overlap. If you can't find one, or if you can't find a third, simply move on to the next attr.
-                // TODO - the choice of what constitutes significant overlap is the problem. There are scenarios in which you're trading off more attrs for fewer objects, and vice versa. The goal should probably be attr commonality*obj commonality, which is sum of local obj set sizes.
-                // TODO the maps don't track "object commonality" - how often an object shares an attr with another. Perhaps that's a gap.
-                // TODO  -If I had object commonality scores.... what would I do with them? Would I use them to judge the value of attrs?
-                // TODO
-
-
-                // TODO count map? What do I do with a count map? Attrs that are equal or close to this attr?
-                // TODO each attr already has a friggin count. What exactly does this localized count do for my grouping? Attr -> objs -> attrs
-                // TODO what do I do when I manually create a proto? I look at a common attr, and I look for other common attrs among them. Ones that are common get added to the set, ones that aren't arent.
-                // TODO find the most common attr, then the second most common. Go naive greedy and validate after.
-
-                // TODO okay, one sec. What am I doing. I am - evaluating every attr against every other attr, searching for commonality, right? Is there a way to do this greedily?
-                // TODO perhaps always merge?
-
             });
 
-            // 2.2 Add the other objects to the candidate.
-            // 2.2a If the merge w/ the intersection does not reduce it, add it immediately.
-            // 2.2b If it does reduce it, spawn a parent prototype if it's a true candidate prototype set.
+            var protoCandidate = null;
+            if (!mergeCandidate || minMergeScore/attrObjs.size > options.maxMergeScore) {
+                // no candidate found - insert a single-attr candidate
+                protoCandidate = {
+                    objs: new Set(attrObjs),
+                    attrs: new Set([attr]),
+                    parentProto: null
+                };
+            } else {
+                // otherwise, attempt a merge with the given candidate
+                if (minMergeScore == 0) {
+                    // exact objSet match is trivially simple
+                    mergeCandidate.attrs.add(attr);
+                    // TODO check for key overrides in the objects not covered? If they're overridden, we can include them in the parent?
+                    // TODO Perhaps this should all happen at score time? unclear what to do with partial matches under subProtoObjs though
+                } else {
+                    // Two exclusive kinds of inexact match:
+                    // - superProtoObjs - You do not cover all my objects, so I'm spawning a parent if I can.
+                    // - subProtoObjs - I do not apply to all your objects, so I'm spawning a child.
+                    // We can't handle both - we must choose one or the other
+                    if (!mergeCandidate.parentProto && attrObjs.size > mergeCandidate.objs.size) {
+                        // spawn parent (with just intersection objects)
+                        protoCandidate = {
+                            objs: new Set(),
+                            attrs: new Set([attr]),
+                            parentProto: null
+                        };
+                        mergeCandidate.parentProto = protoCandidate;
+                        mergeCandidate.objs.forEach(function (mcObj) {
+                            if (attrObjs.has(mcObj)) {
+                                protoCandidate.objs.add(mcObj);
+                            }
+                        });
+                    } else {
+                        // spawn child
+                        protoCandidate = {
+                            objs: new Set(attrObjs),
+                            attrs: new Set([attr]),
+                            parentProto: mergeCandidate
+                        };
+                    }
+                }
+            }
+            if (protoCandidate) {
+                protoCandidates.push(protoCandidate);
+                attrObjs.forEach(function (obj) {
+                    if (!protoCandidatesByObj.has(obj)) {
+                        protoCandidatesByObj.set(obj, protoCandidate);
+                    }
+                });
+            }
+        }
 
-            // TODO iter into each obj for candidate neighbors? What does merge candidate look like? Do we add them back to the map or something?
-            // TODO what does the candidate score look like? Neighbords have a certain number of common objects, but (A^B) ^ C may be different from (A^C) v (A^C).
+// Third step, collapse prototype candidates into prototypes to conform to the given options
+        var protosByCandidate = new WeakMap();
+        protoCandidates.forEach(function _iterMakeProto(protoCandidate) {
+            if (protosByCandidate.has(protoCandidate)) {
+                return protosByCandidate.get(protoCandidate);
+            }
+            var proto = {};
+            var parent = null;
+            // ensure that parents are handled/created first
+            if (protoCandidate.parentProto) { parent = _iterMakeProto(protoCandidate.parentProto); }
 
-            // TODO Where do we collect these candidates? Do we need to reference them again in the future? If we need to spawn child-prototypes in the future, maybe - but how could you tell?
-            // TODO Note that there's not actually a uniqueness requirement on attributes. Multiple protos could have idential attributes. Maybe I'm back to clustering objects.
-            // TODO Maintaining references to existing prototypes seems important and intuitive.
+            // If a proto doesn't have enough attributes or objects, push them down to all the proto children and skip creating this
+            if (protoCandidate.attrs.size < options.minProtoSize
+                    || protoCandidate.objs.size < options.minProtoUsage) {
+                // TODO restore protoChildren references
 
+                // TODO also set all obj candidates to the first child that has them? Hm, tricky to unpack
+                return null;
+            }
+
+            // finish building this proto
+            if (parent) { proto.__proto__ = parent; }
+            protoCandidate.attrs.forEach(function (attr) {
+                var keyVal = attr.split(/_(.+)/);
+                // TODO attr is not escaped or safe - it was only ever meant to be a unique key. Should I make its encoding reversable?
+                // TODO reverse object refs
+            });
+
+// Fourth step - for each object in each prototype candidate, set its proto and delete its redundant attrs (if it hasn't been set already)
+            protoCandidate.objs.forEach(function (obj) {
+                if (obj.__proto__ !== Object.prototype && obj.__proto__ != parent) {
+                    obj.__proto__ = proto;
+
+                    Object.keys(protoIter).forEach(function (key) {
+                        if (obj[key] === proto[key]) {
+                            delete obj[key];
+                        }
+                    });
+                }
+            });
+            protosByCandidate.set(protoCandidate, proto);
+            return proto;
         });
 
-// Third step, collapse proto candidates to conform to options
-        // If a proto doesn't have enough attributes, push them down to all the proto children. Objects that reference only the grandparent are out of luck.
-        // TODO impl support for override threshold recognition
-
-// Fourth step - for each object in each proto candidate, set its proto and delete its redundant attrs.
-
-        return null;  //TODO
+        // object should be munged in place
+        return object;
     }
 }
 
