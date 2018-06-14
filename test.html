@@ -3,75 +3,292 @@
   <script src="ptjson.js"></script>
 <pre><p id=output></p>
 <script>
+out('<br><h1> minify car fake test data </h1> ');
+doTest(getCarFake());
+
 function out(s) {
     document.getElementById('output').innerHTML += s + '<br>';
 }
 function doTest(o) {
-    var s, rawJson, minJson, unminO, unminJson;
+    var s, rawJson, origO, minJson, unminO, unminJson;
     try {
         rawJson = JSON.stringify(
                   JSON.decycle(
                     o
-                  ));
+                  ), null, "    ");
+
+        origO = JSON.retrocycle(
+                JSON.parse(
+                  rawJson
+                ));
 
         minJson = JSON.stringify(
                   JSON.decycle(
                   PTJSON.protopack(
-                  //PTJSON.prototypify( TODO
+                  PTJSON.prototypify(
                   PTJSON.shallowify(
                     o
-                  ))));
+                  )))), null, "    ");
+
         unminO = PTJSON.unshallowify(
-                 //PTJSON.deprototypify( TODO
+                 PTJSON.deprototypify(
                  PTJSON.protounpack(
                  JSON.retrocycle(
                  JSON.parse(
                    minJson
-                 ))));
+                 )))));
 
         unminJson = JSON.stringify(
                     JSON.decycle(
                       unminO
-                    ));
+                    ), null, "    ");
 
-
-        out('<br><br> demutate match: ' + (rawJson == unminJson));
-        out(o);
-        out(rawJson);
+        out('demutate match: ' + compare2Objects(origO, unminO));
+        out("----------------------------------------------------------------");
+        out("rawJson.length: "+rawJson.length);
+        out("minJson.length: "+minJson.length);
+        out("unminJson.length: "+unminJson.length);
+        out("----------------------------------------------------------------");
+        //out(rawJson);
+        out("----------------------------------------------------------------");
         out(minJson);
-        out(unminO);
-        out(unminJson);
+        out("----------------------------------------------------------------");
+        //out(unminJson);
     } catch (e) {
         debugger;
         out("    name: " + e.name);
         out(" message: " + e.message);
+        out("   stack: " + e.stack);
     }
 }
-doTest((new function() {
+function getCarFake() {
     // test data
     o1 = {
       make : "ford",
       model : "explorer",
       year : "1999",
       VIN : "foo001",
-      tires : [], // TODO differentiate front and rear tires, contain certain screws
-      doors : [], // TODO differentiate left and right doors, contain certain switches
+      tires : [
+          {rim:19, tread:"regular", designation:"front", orientation:"left", nuts:{
+              n: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              ne: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              se: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              sw: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              nw: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" }
+          }},
+          {rim:19, tread:"regular", designation:"front", orientation:"right", nuts:{
+              n: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              ne: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              se: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              sw: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              nw: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" }
+          }},
+          {rim:19, tread:"regular", designation:"rear", orientation:"left", nuts:{
+              n: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              ne: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              se: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              sw: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              nw: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" }
+          }},
+          {rim:19, tread:"regular", designation:"rear", orientation:"right", nuts:{
+              n: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              ne: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              se: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1264" },
+              sw: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1264" },
+              nw: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1264" }
+          }}
+      ],
+      doors : [
+          {designation: "driver", designation:"front", orientation:"left", electrics: {
+              mirrors: {
+                  left: {
+                      startSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                      stopSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                  },
+                  right: {
+                          startSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                          stopSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                  }
+              },
+              windows: {
+                  frontleft: {
+                      startSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                      stopSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                  },
+                  frontright: {
+                      startSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                      stopSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                  },
+                  rearleft: {
+                      startSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                      stopSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                  },
+                  rearright: {
+                      startSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                      stopSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                  }
+              }
+          }},
+          {designation: "passenger", designation:"front", orientation:"right", electrics: {
+              windows: {
+                  primary: {
+                      startSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                      stopSwitch: { manuf: "FD33", lot:"1996-12", model:"g12", amp:1.1, color:"blk" },
+                  }
+              }
+          }},
+          {designation: "passenger", designation:"rear", orientation:"left", electrics: {
+              windows: {
+                  primary: {
+                      startSwitch: { manuf: "FD33", lot:"1996-14", model:"g12", amp:1.1, color:"blk" },
+                      stopSwitch: { manuf: "FD33", lot:"1996-14", model:"g12", amp:1.1, color:"blk" },
+                  }
+              }
+          }},
+          {designation: "passenger", designation:"rear", orientation:"right", electrics: {
+              windows: {
+                  primary: {
+                      startSwitch: { manuf: "FD33", lot:"1996-14", model:"g12", amp:1.1, color:"blk" },
+                      stopSwitch: { manuf: "FD33", lot:"1996-14", model:"g12", amp:1.1, color:"blk" },
+                  }
+              }
+          }},
+      ],
       console : {
-        // todo contain same switches and screws
+          mount: {
+              aft1: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              aft2: { mat: "steel2", dia: 4.75, manuf: "F953G", lot : "1998-1263" },
+              interior: { mat: "steel2", dia: 3, manuf: "F953H", lot : "1994-721" }
+          },
+          electrics: {
+              climateControl: {
+                  mainPower: { manuf: "FD33", lot:"1996-14", model:"g12", amp:1.1, color:"grey" },
+                  thermostatDial: { manuf: "FD33", lot:"1996-14", model:"g12", amp:1.1, color:"grey", dialGradient:1.3 },
+                  fanDial: { manuf: "FD33", lot:"1996-14", model:"g12", amp:1.1, color:"grey", dialGradient:1.2 }
+              }
+          }
       }
     };
     o1.backref = o1;
     // note - there are no redundant objects here - just creating deep copies w/ decycle
-    //o2 = JSON.decycle(o1);
-    o2 = Object.create(o1);  // TODO replace w/ above line creating deep copies when prototypify is live
+    o2 = JSON.decycle(o1);
     o2.VIN = "foo002";
     o2.backref = o2;
-    // TODO customize tires - some deep copies, some shallow
-    //o3 = JSON.decycle(o1);
-    o3 = Object.create(o1);  // TODO replace w/ above line when prototypify is live
+    // customize tires
+    o2.tires[2].rim = 21;
+    o2.tires[3].rim = 21;
+    o2.tires[0].nuts.se = null;
+    o2.tires[1].nuts.n.lot = "2003-4431";
+    o2.doors[2].electrics.windows.primary.stopSwitch.manuf = "FD51";
+
+    o3 = JSON.decycle(o1);
     o3.VIN = "foo003";
     o3.backref = o3;
-    // TODO customize tires - some deep copies, some shallow
+    o3.tires[0].rim = 21;
+    o3.tires[1].rim = 21;
+    o3.tires[1].nuts.n.lot = "2003-4431";
+    o3.doors[1].electrics.windows.primary.startSwitch.manuf = "FD51";
+    o3.console.mount.aft2.mat = "steel1";
+    o3.console.electrics.climateControl.thermostatDial.amp = 1.3;
+
     return [o1, o2, o3];
-}()));
+}
+
+// cribbed and adapted from https://stackoverflow.com/questions/1068834/object-comparison-in-javascript
+  function compare2Objects (left, right) {
+    var p, leftChain = [left], rightChain = [right];
+
+    return (function _iterCompare2Objects(x, y) {
+        // remember that NaN === NaN returns false
+        // and isNaN(undefined) returns true
+        if (isNaN(x) && isNaN(y) && typeof x === 'number' && typeof y === 'number') {
+             return true;
+        }
+
+        // Compare primitives and functions.
+        // Check if both arguments link to the same object.
+        // Especially useful on the step where we compare prototypes
+        if (x === y) {
+            return true;
+        }
+
+        // Works in case when functions are created in constructor.
+        // Comparing dates is a common scenario. Another built-ins?
+        // We can even handle functions passed across iframes
+        if ((typeof x === 'function' && typeof y === 'function') ||
+           (x instanceof Date && y instanceof Date) ||
+           (x instanceof RegExp && y instanceof RegExp) ||
+           (x instanceof String && y instanceof String) ||
+           (x instanceof Number && y instanceof Number)) {
+            return x.toString() === y.toString();
+        }
+
+        // At last checking prototypes as good as we can
+        if (!(x instanceof Object && y instanceof Object)) {
+            return false;
+        }
+
+        if (x.isPrototypeOf(y) || y.isPrototypeOf(x)) {
+            return false;
+        }
+
+        if (x.constructor !== y.constructor) {
+            return false;
+        }
+
+        if (x.prototype !== y.prototype) {
+            return false;
+        }
+
+        // Check for infinite linking loops
+        if (leftChain.indexOf(x) > -1 || rightChain.indexOf(y) > -1) {
+             return leftChain.indexOf(x) == rightChain.indexOf(y);
+        }
+
+        // Quick checking of one object being a subset of another.
+        // todo: cache the structure of arguments[0] for performance
+        for (p in y) {
+            if (y.hasOwnProperty(p) !== x.hasOwnProperty(p)) {
+                return false;
+            }
+            else if (typeof y[p] !== typeof x[p]) {
+                return false;
+            }
+        }
+
+        for (p in x) {
+            if (y.hasOwnProperty(p) !== x.hasOwnProperty(p)) {
+                return false;
+            }
+            else if (typeof y[p] !== typeof x[p]) {
+                return false;
+            }
+
+            switch (typeof (x[p])) {
+                case 'object':
+                case 'function':
+
+                    leftChain.push(x);
+                    rightChain.push(y);
+
+                    if (!compare2Objects (x[p], y[p])) {
+                        return false;
+                    }
+
+                    leftChain.pop();
+                    rightChain.pop();
+                    break;
+
+                default:
+                    if (x[p] !== y[p]) {
+                        return false;
+                    }
+                    break;
+            }
+        }
+
+        return true;
+    })(left, right);
+  }
+
 </script></pre></body></html>
