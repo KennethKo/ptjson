@@ -28,6 +28,6 @@ TODO
 
 --prototypify, deprototypify - DONE
 
----add override detection when scoring prototype parents by their footprint
+---add override detection when scoring prototype parents by their footprint - DONE
 
 ---add support for existing prototypes when applying prototypify
