@@ -154,9 +154,14 @@ if (typeof PTJSON.protopack !== "function") {
                 value.$protoref = value.__proto__;
                 value.__proto__ = Object.prototype;
 
+                //if (!nolibrary) { // TODO remove condition of adding toplevel prototypes to the library
                 if (!nolibrary && valueKey) {
                     // normalize valueKey a bit
-                    valueKey = valueKey.slice(valueKey.search("[^\.]*\.[^\.]*$"));   // NOTE - this doesn't handle keys with periods in them very well
+                    if (valueKey) {
+                        valueKey = valueKey.slice(valueKey.search("[^\.]*\.[^\.]*$"));   // NOTE - this doesn't handle keys with periods in them very well
+                    } else {
+                        valueKey = ".";
+                    }
                     // TODO consider getting fancy and smart-matching close-match keys
                     // keep track of how often the prototype's children are referred to by a certain key
                     if (!keyCountsByProtoRef.has(value.$protoref)) {
@@ -166,6 +171,7 @@ if (typeof PTJSON.protopack !== "function") {
                     if (!keyCount[valueKey]) { keyCount[valueKey] = 1; }
                     else { keyCount[valueKey]++; }
                 }
+                return value.$protoref;
             }
         }));
 
@@ -173,15 +179,8 @@ if (typeof PTJSON.protopack !== "function") {
             return returnObject;
         }
 
-        var protoLibrary = {};
-        keyCountsByProtoRef.forEach(function (keyCount, protoRef) {
-            // skip anything that's already referenced our library
-            var grandparent = protoRef.$protoref;
-            while (grandparent) {
-                if (keyCountsByProtoRef.has(grandparent)) { return; }
-                grandparent = grandparent.$protoref;
-            }
-
+        var protoLibrary = {};  // TODO - the protolibrary itself is unordered, which can be a pain
+        keyCountsByProtoRef.forEach(function (keyCount, protoRef) { // TODO this doesn't seem to ever pick up protos with super-protos?
             // normalize the key that refers to this prototype's objects most often
             var maxKeyCount = 0;
             var maxKey;
@@ -315,12 +314,8 @@ if (typeof PTJSON.unshallowify !== "function") {
 
 if (typeof PTJSON.prototypify !== "function") {
 
-    PTJSON._interCount = function _interCount(set1, set2) {
-        var ret = 0;
-        set1.forEach(function(val) {
-            if (set2.has(val)) { ret++;}
-        });
-        return ret;
+    function _union() {
+        return new Set(function*() { for (let set of arguments) { yield* set; }}());
     }
 
     PTJSON.prototypify = function prototypify(object, options) {
@@ -330,8 +325,11 @@ if (typeof PTJSON.prototypify !== "function") {
       if (!options) options = {};
       if (!options.minProtoSize) options.minProtoSize = 3;          // Prototypes should have at least 3 common attribute key-value pairs to be formed
       if (!options.minProtoUsage) options.minProtoUsage = 3;        // Prototypes should be referenced by at least 3 objects to be formed
-      if (!options.maxMergeScore) options.maxMergeScore = .5;       // At least half of the objects referencing attr1 must also reference attr2 for us to put these key-value attribute pairs in the same prototype hierarchy (mergeScore is a little more complicated than that, but this is the gist)
-      if (!options.maxOverrideRatio) options.maxOverrideRatio = .4; // TODO A "common" attribute may be overridden at most 40% of the time by its inheritors to be included in their prototype TODO
+      if (!options.maxMergeScore) options.maxMergeScore = .5;       // At least half of the objects referencing attr1 or attr2 must reference both for us to put these key-value attribute pairs in the same prototype hierarchy.
+                                                                    // Objects requiring overrides count as half a mismatch against the .1 ratio tolerance.
+      if (!options.maxHierarchyScore) options.maxHierarchyScore = .9;   // At least 90% of the objects referencing attr1 or attr2 must reference both for us to put these key-value attribute pairs in the same prototype object.
+      if (!options.maxOverrideRatio) options.maxOverrideRatio = .2; // A "common" attribute may be overridden at most 40% of the time by its inheritors to be included in their prototype TODO
+      if (!options.maxHemmorage) options.maxHemmorage = .1;         // If we merge an attr into a hierarchy, we can lose at most 10% of the objects represented by the attr and hierarchy
 
 // First step, first pass: collect into common attributes and heuristics
         // collect JSON-able obj references
@@ -355,12 +353,14 @@ if (typeof PTJSON.prototypify !== "function") {
             Object.entries(value).forEach(function(keyVal) {
                 var attr = keyVal[0] + " : " + (objectRefs.has(keyVal[1]) ? objectRefs.get(keyVal[1]) : keyVal[1]);
                 attrs.push(attr);
+
+                if (!objsByAttr.has(attr)) { objsByAttr.set(attr, new Set([value])); }
+                else { objsByAttr.get(attr).add(value); }
+
                 if (!keyValsByAttr.has(attr)) { keyValsByAttr.set(attr, keyVal); }
             });
             attrsByObj.set(value, new Set(attrs));
             attrs.forEach(function (attr) {
-                if (!objsByAttr.has(attr)) { objsByAttr.set(attr, new Set([value])); }
-                else { objsByAttr.get(attr).add(value); }
             });
         }));
         // build a set of heuristic object scores to evaluate overall object connectedness
@@ -385,7 +385,7 @@ if (typeof PTJSON.prototypify !== "function") {
 
 // Second step, cluster common key-value attributes greedily into prototypeCandidates, starting w/ highest score
         var protoCandidates = [];
-        var protoCandidatesByObj = new WeakMap();
+        var protoCandidatesByObj = new Map();
         attrListByScore.forEach(function (attr) {
             var attrKey = keyValsByAttr.get(attr)[0];
             var attrObjs = objsByAttr.get(attr);
@@ -395,69 +395,145 @@ if (typeof PTJSON.prototypify !== "function") {
             var protoTargets = new Set();
             attrObjs.forEach(function (obj) {
                 if (protoCandidatesByObj.has(obj)) { protoTargets.add(protoCandidatesByObj.get(obj)); }
+                // TODO this first-come precedence policy results in strange, non-collapsing behavior when the occasional value is different. Replace this with some kind of bloom filter or key collection?
             });
-            var mergeCandidate = null;
-            var minMergeScore = 100;
-            protoTargets.forEach(function (protoTarget) {
-                var interCount = PTJSON._interCount(attrObjs, protoTarget.objs);
-                var keyInterCount = 0;
-                var mergeScore = (attrObjs.size - interCount)               // superProtoObjs.size - I apply to more objects than this protoTarget
-                                // TODO add score considerations for override threshold ratio. Consider adding the objs with the key but not the val.
-                                 + (protoTarget.objs.size - interCount)*3;  // subProtoObjs.size - I apply to fewer objects than this protoTarget
-                if (mergeScore < minMergeScore) {
-                    minMergeScore = mergeScore;
-                    mergeCandidate = protoTarget;
+            var mergeTarget = {
+                score: 100
+            };
+            Array.from(protoTargets).some(function (protoTarget) {
+                // Evaluate each prototype by how well its protoObjs match the attribute's objs
+                // intersect the two sets into five sets:
+                //  PmA  - protoObjs not in attrObjs
+                //  PmAK - protoObjs not in attrObjs, but with key overlap (can merge)
+                //  PiA  - objs in both protoObjs and attrObjs
+                //  AmPK - attrObjs not in protoObjs, but with key overlap (can merge)
+                //  AmP  - attrObjs not in protoObjs
+                var cmt = {
+                    proto: protoTarget,
+                    score: 0,
+                    PmA  : new Set(),
+                    PmAK : new Set(),
+                    PiA  : new Set(),
+                    AmPK : new Set(),
+                    AmPKMismatchCount : 0,
+                    AmP  : new Set()
+                };
+                protoTarget.objs.forEach(function(protoTargetObj) {
+                    if (attrObjs.has(protoTargetObj)) { cmt.PiA.add(protoTargetObj); }
+                    else if (protoTargetObj.hasOwnProperty(attrKey)) { cmt.PmAK.add(protoTargetObj); }
+                    else { cmt.PmA.add(protoTargetObj); }
+                });
+                attrObjs.forEach(function(attrObj) {
+                    if (protoTarget.objs.has(attrObj)) {
+                        return;     // already added
+                    }
+                    var protoKeyMismatches = 0;
+                    protoTarget.attrKeys.forEach(function(ptAttrKey) {
+                        if (!attrObj.hasOwnProperty(ptAttrKey)) { protoKeyMismatches++; }
+                    });
+                    cmt.AmPKMismatchCount += protoKeyMismatches;
+                    if (protoKeyMismatches) { cmt.AmPK.add(attrObj, protoKeyMismatches); }
+                    else { cmt.AmP.add(attrObj); }
+                });
+
+                // evaluate the score based on the number objects not covered vs the number that are (normalized against the intersection)
+                if (cmt.PiA.size < options.minProtoUsage) { return; }
+                cmt.score += cmt.PmA.size + cmt.PmAK.size/2;
+                cmt.score += cmt.AmP.size + cmt.AmPK.size/2;
+                cmt.score /= cmt.PmA.size + cmt.PmAK.size + cmt.PiA.size + cmt.AmP.size + cmt.AmPK.size;
+                // if this protoType already has an attr for the current key - it should not exact match (though it may slot in the same hierarchy)
+                if (protoTarget.attrKeys.has(attrKey)) { cmt.score += options.maxHierarchyScore; }
+                // if this prototype would go over the overridden properties threshold, it should not exact match (though it may slot in the same hierarchy)
+                else if ((options.maxOverrideRatio*protoTarget.objs.size*protoTarget.attrs.size) <
+                    (protoTarget.objAttrOverrideCount + cmt.PmAK.size + cmt.AmPKMismatchCount)) { cmt.score += options.maxHierarchyScore; }
+
+                if (cmt.score < mergeTarget.score) {
+                    mergeTarget = cmt;
+                    if (cmt.score === 0) {
+                        return true;    // found a perfect match
+                    }
                 }
             });
 
             var protoCandidate = null;
-            if (!mergeCandidate || minMergeScore/attrObjs.size > options.maxMergeScore) {
-                // no candidate found - insert a single-attr candidate
-                protoCandidate = {
-                    objs: new Set(attrObjs),
-                    attrs: new Set([attr]),
-                    parentProto: null,
-                    childProtos: []
-                };
+            if (!mergeTarget.proto || mergeTarget.score > options.maxMergeScore) {
+                // no candidate found
+                protoCandidate = -1;
             } else {
                 // otherwise, attempt a merge with the given candidate
-                if (minMergeScore == 0) {
+                if (mergeTarget.score <= options.maxHierarchyScore) {
                     // exact objSet match is trivially simple
-                    mergeCandidate.attrs.add(attr);
-                    // TODO check for key overrides in the objects not covered? Check adjustedMergeScore? If they're overridden, we can include them in the parent?
-                } else {
+                    mergeTarget.proto.attrs.add(attr);
+                    mergeTarget.proto.attrKeys.add(keyValsByAttr.get(attr)[0]);
+                    // add overrideable objects to this candidate, potentially expanding its obj footprint
+                    if (mergeTarget.AmPK.size > 0) {
+                        mergeTarget.AmPK.forEach(function(AmPKVal, AmPKKey) {
+                            mergeTarget.proto.objs.add(AmPKKey);
+                        });
+                        mergeTarget.proto.objAttrOverrideCount += mergeTarget.AmPKMismatchCount;
+                    }
+                    if (mergeTarget.PmAK.size > 0) {
+                        mergeTarget.proto.objAttrOverrideCount += mergeTarget.PmAK.size;
+                    }
+                } else if (Math.max(mergeTarget.AmP.size, mergeTarget.PmA.size) < options.maxHemmorage * (mergeTarget.PmA.size + mergeTarget.PmAK.size + mergeTarget.PiA.size + mergeTarget.AmPK.size + mergeTarget.AmP.size)) {
                     // Two exclusive kinds of inexact match:
                     // - superProtoObjs - You do not cover all my objects, so I'm spawning a parent if I can.
                     // - subProtoObjs - I do not apply to all your objects, so I'm spawning a child.
                     // We can't handle both - we must choose one or the other
-                    if (!mergeCandidate.parentProto && attrObjs.size > mergeCandidate.objs.size) {
-                        // spawn parent (with just intersection objects)
+                    if (!mergeTarget.proto.parentProto
+                            && mergeTarget.AmP.size > mergeTarget.PmA.size) {
+                        // spawn parent. (NOTE - if a viable parent already existed, it would probably have had a better score anyway)
+                        var intersectionSet = attrObjs; // attrObjs == _union(mergeTarget.PiA, mergeTarget.AmPK, mergeTarget.AmP);
                         protoCandidate = {
-                            objs: new Set(),
+                            objs: attrObjs,
+                            objAttrOverrideCount: 0,    // NOTE - AmPK objects get overriden by another attr in mergeTarget.proto, not by objects. They don't count toward *either* override count.
                             attrs: new Set([attr]),
+                            attrKeys: new Set([keyValsByAttr.get(attr)[0]]),
                             parentProto: null,
                             childProtos: [mergeCandidate]
                         };
-                        mergeCandidate.parentProto = protoCandidate;
-                        mergeCandidate.objs.forEach(function (mcObj) {
-                            // Just the intersection
-                            if (attrObjs.has(mcObj)) { protoCandidate.objs.add(mcObj); }
+                        mergeTarget.proto.parentProto = protoCandidate;
+                        mergeTarget.PmA.forEach(function(iObj) {
+                            mergeTarget.proto.objs.delete(iObj);    // no longer compatible with hierarchy
+                            protoCandidatesByObj.delete(iObj);
                         });
+                        // TODO there's no way for this new parent to scan for existing independant prototypes that perhaps should be under it. In theory, this would be fine, given our score ordering, but it makes this particular flow very suspect.
                     } else {
                         // spawn child
+                        // just children w/ intersection. AmP objects are lost. PmAK objects remain in the parent
+                        var intersectionSet = _union(mergeTarget.PiA, mergeTarget.AmPK);
                         protoCandidate = {
-                            objs: new Set(attrObjs),
+                            objs: new Set(intersectionSet),
+                            objAttrOverrideCount: 0,
                             attrs: new Set([attr]),
+                            attrKeys: new Set([keyValsByAttr.get(attr)[0]]),
                             parentProto: mergeCandidate,
                             childProtos: []
                         };
-                        mergeCandidate.childProtos.push(protoCandidate);
+                        mergeTarget.proto.childProtos.push(protoCandidate);
+                        intersectionSet.forEach(function(iObj) {
+                            protoCandidatesByObj.delete(iObj);    // more specific child reference should be primary reference
+                        });
                     }
+                } else {
+                    // no candidate found
+                    protoCandidate = -1;
                 }
+            }
+            if (protoCandidate === -1) {
+                // no candidate found - insert an independant single-attr candidate
+                protoCandidate = {
+                    objs: new Set(attrObjs),
+                    objAttrOverrideCount: 0,
+                    attrs: new Set([attr]),
+                    attrKeys: new Set([keyValsByAttr.get(attr)[0]]),
+                    parentProto: null,
+                    childProtos: []
+                };
             }
             if (protoCandidate) {
                 protoCandidates.push(protoCandidate);
-                attrObjs.forEach(function (obj) {
+                protoCandidate.objs.forEach(function (obj) {
                     if (!protoCandidatesByObj.has(obj)) { protoCandidatesByObj.set(obj, protoCandidate); }
                 });
             }
@@ -479,14 +555,23 @@ if (typeof PTJSON.prototypify !== "function") {
                     || protoCandidate.objs.size < options.minProtoUsage) {
 
                 protoCandidate.childProtos.forEach(function (childProto) {
+                    // merge protoCandidate to its children
+
                     // childProto.parentProto = protoCandidate.parentProto; // NOTE - unneceessary, as we're setting protosByCandidate to skip this generation
                     // if (parent) { parent.childProtos.remove(parent.childProtos.indexOf(protoCandidate)); }  // NOTE - unnecessary, as the parent is already processed and no longer needs childProtos to be correct
-                    // merge to children
-                    childProto.attrs = new Set(function*() { yield* childProto.attrs; yield* protoCandidate.attrs; }());
-                    // TODO if parent and child have key collisions, this merge doesn't respect them, and could break. The proto would be built an artibrary one
-                    childProto.objs = new Set(function*() { yield* childProto.objs; yield* protoCandidate.objs; }());
+
+                    // TODO childProto.objs lost its AmP a long time ago. Is there any way to recover it safely wrt the new parent? (esp if new parent is null?)
+                    protoCandidate.attrs.forEach(function (protoAttr) {
+                        // NOTE - ONLY merge attributes that do not collide with the child's keys
+                        var protoKey = keyValsByAttr.get(protoAttr)[0];
+                        if (childProto.attrKeys.has(protoKey)) { return; }
+
+                        childProto.attrs.add(protoAttr);
+                        childProto.attrKeys.add(protoKey);
+                    });
                 });
 
+                // attrs go down to children, objs go up to parents
                 protosByCandidate.set(protoCandidate, parent);
                 return parent;
             }
@@ -497,21 +582,25 @@ if (typeof PTJSON.prototypify !== "function") {
                 var keyVal = keyValsByAttr.get(attr);
                 proto[keyVal[0]] = keyVal[1];
             });
-
-// Fourth step - for each object in each prototype candidate, set its proto and delete its redundant attrs (if it hasn't been set already)
-            protoCandidate.objs.forEach(function (obj) {
-                if (obj.__proto__ == Object.prototype) {
-                    obj.__proto__ = proto;
-
-                    Object.keys(obj).forEach(function (key) {
-                        if (obj[key] === proto[key]) {
-                            delete obj[key];
-                        }
-                    });
-                }
-            });
             protosByCandidate.set(protoCandidate, proto);
             return proto;
+        });
+
+// Fourth step - for each object in each prototype candidate, set its proto and delete its redundant attrs (if it hasn't been set already)
+        protoCandidatesByObj.forEach(function (protoCandidate, obj) {
+            var proto = protosByCandidate.get(protoCandidate);
+            if (proto && obj.__proto__ == Object.prototype) {
+                obj.__proto__ = proto;
+
+                // TODO if the prototype introduces a key that this object *doesn't* have, we may need to explicitly set it to undefined.
+                // TODO We would also want to capture this with a special weight in scoring.
+
+                Object.keys(obj).forEach(function (key) {
+                    if (obj[key] === proto[key]) {
+                        delete obj[key];
+                    }
+                });
+            }
         });
 
         // object should be munged in place
