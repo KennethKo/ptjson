@@ -13,6 +13,8 @@ var restoredObj = PTJSON.parse(minJSON);
 
 ...
 
+// Components within the abriviated utils - 
+
 if (typeof PTJSON.stringify !== "function") {
     PTJSON.stringify = function(o, replacer, space) {
         return JSON.stringify(
